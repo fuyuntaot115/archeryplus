@@ -1,0 +1,7 @@
+pytest
+pytest-django==4.9.0
+pytest-mock
+pytest-cov
+pytest-timeout
+codecov
+flake8

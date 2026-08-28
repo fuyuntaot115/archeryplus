@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+  <div class="col-md-12">
+    <div class="panel panel-warning">
+      <div class="panel-heading">MSSQL2SQL</div>
+      <div class="panel-body">
+        <div class="row">
+          <div class="col-md-3"><select id="instance_name" class="form-control"><option value="">选择 MSSQL 实例</option></select></div>
+          <div class="col-md-2"><select id="db_name" class="form-control"><option value="">先选择实例</option></select></div>
+          <div class="col-md-2"><input id="begin_time" type="datetime-local" class="form-control" placeholder="开始时间(可选)"></div>
+          <div class="col-md-2"><input id="end_time" type="datetime-local" class="form-control" placeholder="结束时间(可选)"></div>
+          <div class="col-md-2"><input id="table_name" class="form-control" placeholder="表名，多个用英文逗号分隔，可选"></div>
+          <div class="col-md-2"><input id="log_backup_file" class="form-control" placeholder="服务器端 .trn 路径，可选"></div>
+          <div class="col-md-1"><button id="load" class="btn btn-primary">查询</button></div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div class="col-md-2"><select id="time_range" class="form-control"><option value="day" selected>最近一天</option><option value="hour">最近 1 小时</option><option value="today">今天</option><option value="week">最近一周</option><option value="all">不限时间</option><option value="custom">自定义时间</option></select></div>
+          <div class="col-md-2"><input id="transaction_id" class="form-control" placeholder="事务 ID，可选"></div>
+          <div class="col-md-2"><select id="operation" class="form-control"><option value="">全部操作</option><option value="insert">INSERT</option><option value="delete">DELETE</option><option value="update">UPDATE</option></select></div>
+          <div class="col-md-2"><button id="generate" class="btn btn-danger">生成回滚草稿</button></div>
+        </div>
+        <div id="message" class="alert alert-info" style="display:none;margin-top:10px"></div>
+        <div class="progress" style="margin-top:10px;display:none">
+          <div id="progress-bar" class="progress-bar progress-bar-striped active" role="progressbar" style="width:0%"></div>
+        </div>
+        <div id="status" class="text-info" style="margin-top:5px"></div>
+        <p class="text-danger" style="margin-top:15px">在线事务日志中的行内容需要按 SQL Server 表结构解码。未完成解码的记录只用于审计展示，不会被伪造为可执行 SQL。</p>
+      </div>
+    </div>
+    <table id="log_table" class="table table-condensed table-bordered"><thead><tr><th>LSN</th><th>事务 ID</th><th>时间</th><th>操作</th><th>对象</th><th>状态</th></tr></thead><tbody></tbody></table>
+    <textarea id="rollback_sql" class="form-control" rows="12" readonly placeholder="回滚草稿将在此显示"></textarea>
+  </div>
+</div>
+{% endblock content %}
+
+{% block js %}
+<script>
+window.onerror = function (msg, src, line) {
+  try { showMessage('脚本错误: ' + msg + ' (行 ' + line + ')', 'alert-danger'); } catch (e) {}
+};
+var logRows = [];
+function showMessage(text, type) {
+  $('#message').removeClass('alert-info alert-danger alert-success alert-warning').addClass(type || 'alert-info').text(text).show();
+}
+function setProgress(percent, text) {
+  $('.progress').show();
+  $('#progress-bar').css('width', percent + '%').attr('aria-valuenow', percent);
+  $('#status').text(text || '');
+}
+function formatDateTime(date) {
+  function pad(value) { value = String(value); return value.length < 2 ? '0' + value : value; }
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+function setTimeRange(range) {
+  var end = new Date();
+  var begin = new Date(end.getTime());
+  if (range === 'all') {
+    $('#begin_time').val('');
+    $('#end_time').val('');
+    return;
+  }
+  if (range === 'today') begin.setHours(0, 0, 0, 0);
+  else if (range === 'week') begin.setDate(begin.getDate() - 7);
+  else if (range === 'day') begin.setDate(begin.getDate() - 1);
+  else begin.setHours(begin.getHours() - 1);
+  $('#begin_time').val(formatDateTime(begin));
+  $('#end_time').val(formatDateTime(end));
+}
+function loadButtonLoading(on, text) {
+  var btn = $('#load');
+  btn.prop('disabled', on);
+  btn.text(on ? (text || '查询中...') : '查询');
+}
+$(function () {
+  setTimeRange('day');
+  $('#message').hide();
+  $.getJSON('/api/v1/sqlquery/instances/', {db_type: ['mssql']}, function (result) {
+    if (result.status === 0) $.each(result.data, function (_, item) { $('#instance_name').append($('<option>', {value: item.instance_name, text: item.instance_name})); });
+    else showMessage(result.msg, 'alert-danger');
+  });
+  $('#time_range').change(function () { setTimeRange($(this).val()); });
+  $('#instance_name').change(function () {
+    $('#db_name').empty().append('<option value="">正在加载数据库...</option>');
+    showMessage('正在读取数据库列表...', 'alert-info');
+    $.getJSON('/mssql_log_rollback/databases/', {instance_name: $(this).val()}, function (result) {
+      var select = $('#db_name').empty();
+      if (result.status !== 0) { showMessage(result.msg, 'alert-danger'); return; }
+      select.append('<option value="">请选择数据库</option>');
+      $.each(result.data, function (_, name) { select.append($('<option>', {value: name, text: name})); });
+      showMessage('数据库列表加载完成，共 ' + result.data.length + ' 个', 'alert-success');
+    }).fail(function (xhr) { showMessage('数据库加载失败：' + xhr.status + ' ' + xhr.statusText, 'alert-danger'); });
+  });
+  $('#load').click(function () {
+    $('#message').hide();
+    logRows = [];
+    $('#log_table tbody').empty();
+    if (!$('#instance_name').val()) { showMessage('请先选择 MSSQL 实例', 'alert-warning'); return; }
+    if (!$('#db_name').val()) { showMessage('请先选择数据库', 'alert-warning'); return; }
+    loadButtonLoading(true);
+    setProgress(20, '正在连接实例...');
+    setProgress(50, '正在读取在线事务日志...');
+    $.post('/mssql_log_rollback/list/', {
+      instance_name: $('#instance_name').val(), db_name: $('#db_name').val(), begin_time: $('#begin_time').val(),
+      end_time: $('#end_time').val(), transaction_id: $('#transaction_id').val(), table_name: $('#table_name').val(), operation: $('#operation').val(), log_backup_file: $('#log_backup_file').val()
+    }, function (result) {
+      if (result.status !== 0) {
+        setProgress(100, '查询失败');
+        showMessage(result.msg, 'alert-danger');
+        return;
+      }
+      logRows = result.data;
+      var body = $('#log_table tbody').empty();
+      $.each(logRows, function (_, row) { body.append($('<tr>').append($('<td>').text(row['Current LSN'])).append($('<td>').text(row['Transaction ID'])).append($('<td>').text(row['Begin Time'])).append($('<td>').text(row.Operation)).append($('<td>').text(row.AllocUnitName)).append($('<td>').text('需结构解码'))); });
+      setProgress(100, '查询完成');
+      showMessage(logRows.length ? '查询完成，共 ' + logRows.length + ' 条日志记录' : '查询完成，但当前时间范围没有匹配记录。若日志时间为 NULL，请选择“不限时间”重试。', logRows.length ? 'alert-success' : 'alert-warning');
+    }, 'json').always(function () {
+      loadButtonLoading(false);
+    }).fail(function (xhr) {
+      setProgress(100, '查询失败');
+      showMessage('查询失败：' + xhr.status + ' ' + xhr.statusText, 'alert-danger');
+    });
+  });
+  function buildFilterParams() {
+    return {
+      instance_name: $('#instance_name').val(), db_name: $('#db_name').val(), begin_time: $('#begin_time').val(),
+      end_time: $('#end_time').val(), transaction_id: $('#transaction_id').val(), table_name: $('#table_name').val(), operation: $('#operation').val(), log_backup_file: $('#log_backup_file').val()
+    };
+  }
+  $('#generate').click(function () {
+    if (!$('#instance_name').val()) { showMessage('请先选择 MSSQL 实例', 'alert-warning'); return; }
+    if (!$('#db_name').val()) { showMessage('请先选择数据库', 'alert-warning'); return; }
+    var btn = $(this);
+    btn.prop('disabled', true).text('生成中...');
+    setProgress(10, '正在查询事务日志...');
+    $.post('/mssql_log_rollback/list/', buildFilterParams(), function (result) {
+      if (result.status !== 0) { setProgress(100, '生成失败'); showMessage(result.msg, 'alert-danger'); return; }
+      var entries = result.data;
+      if (!entries.length) {
+        setProgress(100, '生成完成');
+        $('#rollback_sql').val('');
+        showMessage('没有匹配的事务日志，请调整时间范围或表名重试', 'alert-warning');
+        return;
+      }
+      var groups = {};
+      $.each(entries, function (_, entry) {
+        var table = (entry['AllocUnitName'] || 'unknown').replace(/^.*\./, '');
+        (groups[table] = groups[table] || []).push(entry);
+      });
+      var tables = Object.keys(groups);
+      var sqlParts = [];
+      var index = 0;
+      function processNext() {
+        if (index >= tables.length) {
+          setProgress(100, '生成完成');
+          $('#rollback_sql').val(sqlParts.join('\n\n'));
+          showMessage('回滚 SQL 已生成（共 ' + tables.length + ' 张表），请仔细核对后再使用', 'alert-success');
+          btn.prop('disabled', false).text('生成回滚草稿');
+          return;
+        }
+        var tableName = tables[index];
+        setProgress(20 + Math.round(index / tables.length * 70), '正在处理表 ' + tableName + '...');
+        $.post('/mssql_log_rollback/schema/', {instance_name: $('#instance_name').val(), db_name: $('#db_name').val(), table_name: tableName}, function (schemaResult) {
+          if (schemaResult.status !== 0) {
+            sqlParts.push('-- 表 ' + tableName + ' 结构读取失败：' + schemaResult.msg);
+            index++; processNext(); return;
+          }
+          $.post('/mssql_log_rollback/generate/', {entries: JSON.stringify(groups[tableName]), schema: JSON.stringify(schemaResult.data)}, function (genResult) {
+            if (genResult.status === 0) sqlParts.push('-- ===== 表 ' + tableName + ' 回滚 =====\n' + genResult.data.sql);
+            else sqlParts.push('-- 表 ' + tableName + ' 生成失败：' + genResult.msg);
+            index++; processNext();
+          }, 'json').fail(function (xhr) { sqlParts.push('-- 表 ' + tableName + ' 生成失败：' + xhr.status + ' ' + xhr.statusText); index++; processNext(); });
+        }, 'json').fail(function (xhr) { sqlParts.push('-- 表 ' + tableName + ' 结构读取失败：' + xhr.status + ' ' + xhr.statusText); index++; processNext(); });
+      }
+      processNext();
+    }, 'json').fail(function (xhr) {
+      setProgress(100, '生成失败');
+      showMessage('查询失败：' + xhr.status + ' ' + xhr.statusText, 'alert-danger');
+      btn.prop('disabled', false).text('生成回滚草稿');
+    });
+  });
+});
+</script>
+{% endblock js %}

@@ -1,0 +1,41 @@
+[tool.pytest.ini_options]
+python_files = "tests.py test_*.py *_tests.py"
+DJANGO_SETTINGS_MODULE = "archery.settings"
+# 默认 addopts：禁用缓存；每个用例 120s 超时保护（需 pytest-timeout）
+# 本地重复运行可加 --reuse-db 复用测试数据库（首次创建需约 2 分钟）
+addopts = "-p no:cacheprovider --timeout=120"
+# 排除非项目源码目录（docker-compose 数据目录、下载工具、虚拟环境等），
+# 避免 Windows 上无法访问 UNIX socket 文件（如 mysql.sock）导致收集失败
+norecursedirs = [
+    "src",
+    "downloads",
+    "venv*",
+    "node_modules",
+    "logs",
+    "sql/migrations",
+]
+
+[tool.coverage.run]
+source = [
+    "."
+]
+omit = [
+    # omit anything in a .local directory anywhere
+    "src*",
+    # omit everything in /usr
+    "downloads*",
+    # omit this single file
+    "sql/migrations/*",
+    "venv*"
+]
+
+[tool.coverage.report]
+omit = [
+    # omit anything in a .local directory anywhere
+    "src*",
+    # omit everything in /usr
+    "downloads*",
+    # omit this single file
+    "sql/migrations/*",
+    "venv*"
+]
