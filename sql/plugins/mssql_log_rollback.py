@@ -43,12 +43,15 @@ class MssqlLogRollback:
             conditions.append("CONVERT(varchar(100), d.[Transaction ID]) = ?")
             parameters.append(transaction_id)
         if table_name:
-            tables = [t.strip().strip("[]") for t in table_name.split(",") if t.strip()]
+            tables = [t.strip() for t in table_name.split(",") if t.strip()]
             if tables:
                 table_conditions = ["d.[AllocUnitName] LIKE ?"] * len(tables)
                 conditions.append("({})".format(" OR ".join(table_conditions)))
                 for table_item in tables:
-                    parameters.append("%{}%".format(table_item))
+                    # 兼容 [dbo].[fyt] / test.dbo.fyt / fyt 等写法：去方括号、取最后一段作为表名
+                    # 否则方括号会被当作 LIKE 通配符（字符集匹配）导致查不到记录
+                    short_name = table_item.replace("[", "").replace("]", "").split(".")[-1]
+                    parameters.append("%{}%".format(short_name))
         if operation:
             conditions.append("d.[Operation] = ?")
             parameters.append(self.OPERATIONS[operation])
