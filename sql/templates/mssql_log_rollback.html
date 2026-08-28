@@ -9,15 +9,15 @@
         <div class="row">
           <div class="col-md-3"><select id="instance_name" class="form-control"><option value="">选择 MSSQL 实例</option></select></div>
           <div class="col-md-2"><select id="db_name" class="form-control"><option value="">先选择实例</option></select></div>
-          <div class="col-md-2"><input id="begin_time" type="datetime-local" class="form-control" placeholder="开始时间(可选)"></div>
-          <div class="col-md-2"><input id="end_time" type="datetime-local" class="form-control" placeholder="结束时间(可选)"></div>
-          <div class="col-md-2"><input id="table_name" class="form-control" placeholder="表名，多个用英文逗号分隔，可选"></div>
-          <div class="col-md-2"><input id="log_backup_file" class="form-control" placeholder="服务器端 .trn 路径，可选"></div>
+          <div class="col-md-2"><input id="begin_time" type="datetime-local" autocomplete="off" class="form-control" placeholder="开始时间(可选)"></div>
+          <div class="col-md-2"><input id="end_time" type="datetime-local" autocomplete="off" class="form-control" placeholder="结束时间(可选)"></div>
+          <div class="col-md-2"><input id="table_name" autocomplete="off" class="form-control" placeholder="表名，多个用英文逗号分隔，可选"></div>
+          <div class="col-md-2"><input id="log_backup_file" autocomplete="off" class="form-control" placeholder="服务器端 .trn 路径，可选"></div>
           <div class="col-md-1"><button id="load" class="btn btn-primary">查询</button></div>
         </div>
         <div class="row" style="margin-top:10px">
           <div class="col-md-2"><select id="time_range" class="form-control"><option value="all" selected>不限时间</option><option value="day">最近一天</option><option value="hour">最近 1 小时</option><option value="today">今天</option><option value="week">最近一周</option><option value="custom">自定义时间</option></select></div>
-          <div class="col-md-2"><input id="transaction_id" class="form-control" placeholder="事务 ID，可选"></div>
+          <div class="col-md-2"><input id="transaction_id" autocomplete="off" class="form-control" placeholder="事务 ID，可选"></div>
           <div class="col-md-2"><select id="operation" class="form-control"><option value="">全部操作</option><option value="insert">INSERT</option><option value="delete">DELETE</option><option value="update">UPDATE</option></select></div>
           <div class="col-md-2"><button id="generate" class="btn btn-danger">生成回滚草稿</button></div>
         </div>

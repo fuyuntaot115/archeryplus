@@ -40,8 +40,14 @@ class MssqlLogRollback:
         conditions = ["d.[Operation] IN ('LOP_INSERT_ROWS','LOP_DELETE_ROWS','LOP_MODIFY_ROW')"]
         parameters = []
         if transaction_id:
-            conditions.append("CONVERT(varchar(100), d.[Transaction ID]) = ?")
-            parameters.append(transaction_id)
+            # 事务 ID 形如 0000:00000532（十六进制+冒号）；浏览器自动填充等无效值直接忽略，
+            # 避免作为过滤条件导致查不到任何记录
+            tid = (transaction_id or "").strip()
+            if not re.match(r"^[0-9a-fA-F:]+$", tid):
+                tid = None
+            if tid:
+                conditions.append("CONVERT(varchar(100), d.[Transaction ID]) = ?")
+                parameters.append(tid)
         if table_name:
             tables = [t.strip() for t in table_name.split(",") if t.strip()]
             if tables:
