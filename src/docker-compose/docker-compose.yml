@@ -1,37 +1,9 @@
 version: '3'
 
+# 说明：本 compose 不再内置 MySQL/Redis，archery 容器直接复用宿主机的 MySQL(3306) 和 Redis(6379)，
+# 以避免端口冲突并复用宿主机已有的实例配置。如需独立 MySQL/Redis，请参考 git 历史。
+
 services:
-  redis:
-    image: redis:5
-    container_name: redis
-    restart: always
-    command: redis-server --requirepass 123456
-    expose:
-      - "6379"
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  mysql:
-    image: mysql:5.7
-    container_name: mysql
-    restart: always
-    ports:
-      - "3306:3306"
-    volumes:
-      - "./mysql/my.cnf:/etc/mysql/my.cnf"
-      - "./mysql/datadir:/var/lib/mysql"
-    environment:
-      MYSQL_DATABASE: archery
-      MYSQL_ROOT_PASSWORD: 123456
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   goinception:
     image: hanchuanchuan/goinception
     container_name: goinception
@@ -47,10 +19,8 @@ services:
     container_name: archery
     restart: always
     depends_on:
-      redis:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
+      goinception:
+        condition: service_started
     ports:
       - "9123:9123"
     volumes:
