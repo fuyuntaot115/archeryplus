@@ -132,56 +132,56 @@ $(function () {
     if (!$('#instance_name').val()) { showMessage('请先选择 MSSQL 实例', 'alert-warning'); return; }
     if (!$('#db_name').val()) { showMessage('请先选择数据库', 'alert-warning'); return; }
     var btn = $(this);
+    // 基于当前已查询的结果（logRows，即"查询"按钮在所选时间范围/条件下查找到的记录）生成回滚 SQL
+    var entries = logRows || [];
+    if (!entries.length) {
+      $('#rollback_sql').val('');
+      showMessage('请先点击"查询"获取日志记录，再生成回滚草稿（生成仅针对当前查询结果）', 'alert-warning');
+      return;
+    }
     btn.prop('disabled', true).text('生成中...');
-    setProgress(10, '正在查询事务日志...');
-    $.post('/mssql_log_rollback/list/', buildFilterParams(), function (result) {
-      if (result.status !== 0) { setProgress(100, '生成失败'); showMessage(result.msg, 'alert-danger'); return; }
-      var entries = result.data;
-      if (!entries.length) {
+    setProgress(10, '正在基于查询结果生成回滚 SQL...');
+    var groups = {};
+    $.each(entries, function (_, entry) {
+      var alloc = entry['AllocUnitName'] || '';
+      // 跳过系统对象（sys.*）与无归属记录（Unknown Alloc Unit / 空对象名），它们不是用户数据变更
+      if (!alloc || alloc.indexOf('sys.') === 0 || /unknown/i.test(alloc)) return;
+      var table = alloc.replace(/^.*\./, '');
+      (groups[table] = groups[table] || []).push(entry);
+    });
+    var tables = Object.keys(groups);
+    if (!tables.length) {
+      setProgress(100, '生成完成');
+      $('#rollback_sql').val('');
+      showMessage('查询结果中没有可用的用户表记录，无法生成回滚 SQL', 'alert-warning');
+      btn.prop('disabled', false).text('生成回滚草稿');
+      return;
+    }
+    var sqlParts = [];
+    var index = 0;
+    function processNext() {
+      if (index >= tables.length) {
         setProgress(100, '生成完成');
-        $('#rollback_sql').val('');
-        showMessage('没有匹配的事务日志，请调整时间范围或表名重试', 'alert-warning');
+        $('#rollback_sql').val(sqlParts.join('\n\n'));
+        showMessage('回滚 SQL 已生成（共 ' + tables.length + ' 张表），请仔细核对后再使用', 'alert-success');
+        btn.prop('disabled', false).text('生成回滚草稿');
         return;
       }
-      var groups = {};
-      $.each(entries, function (_, entry) {
-        var alloc = entry['AllocUnitName'] || '';
-        // 跳过系统对象（sys.*）与无归属记录（Unknown Alloc Unit / 空对象名），它们不是用户数据变更
-        if (!alloc || alloc.indexOf('sys.') === 0 || /unknown/i.test(alloc)) return;
-        var table = alloc.replace(/^.*\./, '');
-        (groups[table] = groups[table] || []).push(entry);
-      });
-      var tables = Object.keys(groups);
-      var sqlParts = [];
-      var index = 0;
-      function processNext() {
-        if (index >= tables.length) {
-          setProgress(100, '生成完成');
-          $('#rollback_sql').val(sqlParts.join('\n\n'));
-          showMessage('回滚 SQL 已生成（共 ' + tables.length + ' 张表），请仔细核对后再使用', 'alert-success');
-          btn.prop('disabled', false).text('生成回滚草稿');
-          return;
+      var tableName = tables[index];
+      setProgress(20 + Math.round(index / tables.length * 70), '正在处理表 ' + tableName + '...');
+      $.post('/mssql_log_rollback/schema/', {instance_name: $('#instance_name').val(), db_name: $('#db_name').val(), table_name: tableName}, function (schemaResult) {
+        if (schemaResult.status !== 0) {
+          sqlParts.push('-- 表 ' + tableName + ' 结构读取失败：' + schemaResult.msg);
+          index++; processNext(); return;
         }
-        var tableName = tables[index];
-        setProgress(20 + Math.round(index / tables.length * 70), '正在处理表 ' + tableName + '...');
-        $.post('/mssql_log_rollback/schema/', {instance_name: $('#instance_name').val(), db_name: $('#db_name').val(), table_name: tableName}, function (schemaResult) {
-          if (schemaResult.status !== 0) {
-            sqlParts.push('-- 表 ' + tableName + ' 结构读取失败：' + schemaResult.msg);
-            index++; processNext(); return;
-          }
-          $.post('/mssql_log_rollback/generate/', {entries: JSON.stringify(groups[tableName]), schema: JSON.stringify(schemaResult.data)}, function (genResult) {
-            if (genResult.status === 0) sqlParts.push('-- ===== 表 ' + tableName + ' 回滚 =====\n' + genResult.data.sql);
-            else sqlParts.push('-- 表 ' + tableName + ' 生成失败：' + genResult.msg);
-            index++; processNext();
-          }, 'json').fail(function (xhr) { sqlParts.push('-- 表 ' + tableName + ' 生成失败：' + xhr.status + ' ' + xhr.statusText); index++; processNext(); });
-        }, 'json').fail(function (xhr) { sqlParts.push('-- 表 ' + tableName + ' 结构读取失败：' + xhr.status + ' ' + xhr.statusText); index++; processNext(); });
-      }
-      processNext();
-    }, 'json').fail(function (xhr) {
-      setProgress(100, '生成失败');
-      showMessage('查询失败：' + xhr.status + ' ' + xhr.statusText, 'alert-danger');
-      btn.prop('disabled', false).text('生成回滚草稿');
-    });
+        $.post('/mssql_log_rollback/generate/', {entries: JSON.stringify(groups[tableName]), schema: JSON.stringify(schemaResult.data)}, function (genResult) {
+          if (genResult.status === 0) sqlParts.push('-- ===== 表 ' + tableName + ' 回滚 =====\n' + genResult.data.sql);
+          else sqlParts.push('-- 表 ' + tableName + ' 生成失败：' + genResult.msg);
+          index++; processNext();
+        }, 'json').fail(function (xhr) { sqlParts.push('-- 表 ' + tableName + ' 生成失败：' + xhr.status + ' ' + xhr.statusText); index++; processNext(); });
+      }, 'json').fail(function (xhr) { sqlParts.push('-- 表 ' + tableName + ' 结构读取失败：' + xhr.status + ' ' + xhr.statusText); index++; processNext(); });
+    }
+    processNext();
   });
 });
 </script>
