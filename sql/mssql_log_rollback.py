@@ -25,7 +25,23 @@ def _instance_for_request(request):
 
 @permission_required("sql.menu_mssql_log_rollback", raise_exception=True)
 def mssql_log_rollback(request):
+    # 长驻 gunicorn 进程会缓存模板，修改模板文件后需强制刷新，避免返回旧版本
+    _clear_template_cache()
     return render(request, "mssql_log_rollback.html")
+
+
+def _clear_template_cache():
+    """清空 Django 模板加载器缓存，确保下次渲染读取最新的模板文件。"""
+    try:
+        from django.template import engines
+
+        engine = engines["django"].engine
+        for loader in getattr(engine, "template_loaders", []) or []:
+            cache = getattr(loader, "get_template_cache", None)
+            if isinstance(cache, dict):
+                cache.clear()
+    except Exception:
+        pass
 
 
 @permission_required("sql.menu_mssql_log_rollback", raise_exception=True)
