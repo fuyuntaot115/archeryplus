@@ -1,0 +1,5 @@
+# 临时增量镜像：在刚构建的应用镜像基础上覆盖修复后的文件
+FROM fuyuntao/archeryplus:v1.14.0-custom
+COPY sql/mssql_log_rollback.py /opt/archery/sql/mssql_log_rollback.py
+COPY sql/plugins/mssql_log_rollback.py /opt/archery/sql/plugins/mssql_log_rollback.py
+COPY sql/templates/mssql_log_rollback.html /opt/archery/sql/templates/mssql_log_rollback.html
