@@ -29,6 +29,10 @@ from .models import (
     Tunnel,
     AuditEntry,
     TwoFactorAuthConfig,
+    ServerMergeTemplate,
+    ServerMergeTask,
+    ServerMergeLog,
+    ServerMergeProfile,
 )
 
 from sql.form import TunnelForm, InstanceForm
@@ -528,3 +532,67 @@ class AuditEntryAdmin(admin.ModelAdmin):
         "action_time",
     )
     list_filter = ("user_id", "user_name", "user_display", "action", "extra_info")
+
+
+# 合服默认SQL模板
+@admin.register(ServerMergeTemplate)
+class ServerMergeTemplateAdmin(admin.ModelAdmin):
+    list_display = ("id", "step", "module", "seq", "title", "enabled", "use_transaction", "update_user", "update_time")
+    list_filter = ("step", "module", "enabled")
+    search_fields = ("title", "sql")
+    ordering = ("step", "module", "seq")
+
+
+# 合服任务
+@admin.register(ServerMergeTask)
+class ServerMergeTaskAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "title",
+        "target_instance_name",
+        "source_instance_name",
+        "create_user_display",
+        "create_time",
+    )
+    search_fields = ("title", "target_instance_name", "source_instance_name")
+    list_filter = ("target_instance_name", "source_instance_name")
+    ordering = ("-id",)
+
+
+# 合服执行记录
+@admin.register(ServerMergeLog)
+class ServerMergeLogAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "task",
+        "step",
+        "module",
+        "seq",
+        "title",
+        "run_db",
+        "status",
+        "affected_rows",
+        "cost_time",
+        "user_display",
+        "create_time",
+    )
+    list_filter = ("step", "module", "status")
+    search_fields = ("title", "run_db", "error_info")
+    ordering = ("-id",)
+
+
+# 合服方案
+@admin.register(ServerMergeProfile)
+class ServerMergeProfileAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "target_instance_name",
+        "source_instance_name",
+        "index_db",
+        "create_user_display",
+        "update_time",
+    )
+    search_fields = ("name", "target_instance_name", "source_instance_name")
+    list_filter = ("target_instance_name", "source_instance_name")
+    ordering = ("-update_time",)

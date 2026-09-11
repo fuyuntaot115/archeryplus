@@ -1,0 +1,923 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .sm-steps { display: flex; padding: 0; margin: 0 0 6px; list-style: none; }
+    .sm-steps > li { flex: 1 1 0; position: relative; text-align: center; padding: 0 4px; cursor: pointer; }
+    .sm-steps > li .sm-line { position: absolute; top: 22px; left: -50%; width: 100%; height: 4px; background: #e0e0e0; z-index: 0; }
+    .sm-steps > li:first-child .sm-line { display: none; }
+    .sm-steps > li .sm-dot { position: relative; z-index: 1; display: block; width: 48px; height: 48px; line-height: 42px; margin: 0 auto;
+        border-radius: 50%; background: #fff; border: 3px solid #cfcfcf; color: #9e9e9e; font-size: 18px; font-weight: 700; }
+    .sm-steps > li .sm-title { display: block; margin-top: 6px; font-size: 12px; color: #777; }
+    .sm-steps > li.active .sm-dot { border-color: #337ab7; color: #337ab7; box-shadow: 0 0 0 4px rgba(51, 122, 183, .15); }
+    .sm-steps > li.active .sm-title { color: #337ab7; font-weight: 700; }
+    .sm-steps > li.done .sm-dot { background: #5cb85c; border-color: #5cb85c; color: #fff; }
+    .sm-steps > li.done .sm-line { background: #5cb85c; }
+    .sm-steps > li.done .sm-title { color: #449d44; }
+    .sm-steps > li.locked { cursor: not-allowed; opacity: .65; }
+    .sm-item .panel-heading { padding: 8px 10px; }
+    .sm-item textarea { font-family: Consolas, Monaco, "Courier New", monospace; font-size: 12px; }
+    .sm-preview { display: none; margin-top: 8px; }
+    .sm-preview pre { max-height: 240px; overflow: auto; font-size: 12px; }
+    .sm-result-table td, .sm-result-table th { font-size: 12px; }
+</style>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="panel panel-warning">
+            <div class="panel-heading">
+                <i class="fa fa-exchange"></i> ServerMerge
+                <span class="pull-right">
+                    <button class="btn btn-xs btn-default" id="sm-reset-flow">重置本次流程</button>
+                    <button class="btn btn-xs btn-default" id="sm-refresh-logs">刷新执行记录</button>
+                </span>
+            </div>
+            <div class="panel-body">
+                <div class="row" style="margin-bottom:12px">
+                    <div class="col-md-4">
+                        <div class="input-group">
+                            <input id="sm-profile-name" class="form-control" placeholder="方案名称，例如 ASIA041 合服">
+                            <span class="input-group-btn">
+                                <button class="btn btn-primary" id="sm-profile-save">
+                                    <i class="fa fa-save"></i> 保存全部配置
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="input-group">
+                            <select id="sm-profile-list" class="form-control">
+                                <option value="">选择已保存的方案</option>
+                            </select>
+                            <span class="input-group-btn">
+                                <button class="btn btn-default" id="sm-profile-load">
+                                    <i class="fa fa-folder-open"></i> 加载方案
+                                </button>
+                                <button class="btn btn-danger" id="sm-profile-delete">
+                                    <i class="fa fa-trash"></i> 删除
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-right">
+                        <button class="btn btn-danger" id="sm-exec-all">
+                            <i class="fa fa-bolt"></i> 一键执行全部
+                        </button>
+                    </div>
+                </div>
+                <div id="sm-result-all"></div>
+                <ul class="sm-steps" id="sm-steps">
+                    <li data-step="1" class="active">
+                        <span class="sm-line"></span><span class="sm-dot">1</span>
+                        <span class="sm-title">选择目标库和源库</span>
+                    </li>
+                    {% for step in step_definitions %}
+                    <li data-step="{{ step.step }}">
+                        <span class="sm-line"></span><span class="sm-dot">{{ step.step }}</span>
+                        <span class="sm-title">{{ step.title }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <div id="sm-alert" class="alert" style="display:none"></div>
+
+                <div class="sm-panel" id="sm-panel-1">
+                    <p class="text-muted">第 1 步仅做配置：选择目标实例与源实例，用「添加」把需要合服的模块（game / front）及其目标库、源库对应关系加进来；
+                        INDEX 相关的 index_data_change 与 mappingtable 两个 SQL 统一在 INDEX 库中执行。各步骤相互独立，可以单独执行。</p>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label>目标实例（MSSQL）</label>
+                            <select id="sm-target-instance" class="form-control"></select>
+                        </div>
+                        <div class="col-md-4">
+                            <label>源实例（MSSQL）</label>
+                            <select id="sm-source-instance" class="form-control"></select>
+                        </div>
+                        <div class="col-md-4">
+                            <label>&nbsp;</label>
+                            <div>
+                                <button class="btn btn-primary" id="sm-save-step1">
+                                    <i class="fa fa-check"></i> 保存配置
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <hr>
+                    <h5><strong>模块库配置</strong>
+                        <button class="btn btn-xs btn-success" id="sm-add-module" style="margin-left:6px">
+                            <i class="fa fa-plus"></i> 添加
+                        </button>
+                    </h5>
+                    <table class="table table-bordered table-condensed">
+                        <thead>
+                        <tr>
+                            <th style="width:160px">模块</th>
+                            <th>目标库（目标实例）</th>
+                            <th>源库（源实例）</th>
+                            <th style="width:70px">操作</th>
+                        </tr>
+                        </thead>
+                        <tbody id="sm-module-rows"></tbody>
+                    </table>
+                    <hr>
+                    <h5><strong>INDEX 库</strong></h5>
+                    <p class="text-muted" style="margin-bottom:6px">
+                        index_data_change 与 mappingtable 两个 SQL 文件统一在此库执行。
+                    </p>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <select id="sm-index-db" class="form-control"></select>
+                        </div>
+                    </div>
+                </div>
+
+                {% for step in step_definitions %}
+                <div class="sm-panel" id="sm-panel-{{ step.step }}" style="display:none">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label>执行范围</label>
+                            <select class="form-control sm-module-filter" data-step="{{ step.step }}"></select>
+                        </div>
+                        <div class="col-md-3">
+                            <label>&nbsp;</label>
+                            <div class="checkbox">
+                                <label><input type="checkbox" class="sm-use-transaction" data-step="{{ step.step }}" checked>
+                                    整步使用事务执行（失败自动回滚）</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 text-right">
+                            <label>&nbsp;</label>
+                            <div>
+                                <button class="btn btn-default sm-reload-step" data-step="{{ step.step }}">
+                                    <i class="fa fa-refresh"></i> 重新加载默认 SQL
+                                </button>
+                                {% if step.step == 2 %}
+                                <button class="btn btn-info" id="sm-test-link">
+                                    <i class="fa fa-plug"></i> 测试外部数据源
+                                </button>
+                                {% endif %}
+                                <button class="btn btn-danger sm-exec-step" data-step="{{ step.step }}">
+                                    <i class="fa fa-play"></i> 执行第 {{ step.step }} 步
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-muted" style="margin-top:8px">
+                        每一步的 SQL 都会在事务中执行；「源库」标记的条目在源实例上执行（如 Pre_work），其余条目以对应模块的目标库为默认库。
+                    </p>
+                    <div id="sm-items-{{ step.step }}"></div>
+                    <div id="sm-result-{{ step.step }}"></div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="panel panel-default">
+            <div class="panel-heading">合服执行记录</div>
+            <div class="panel-body">
+                <table class="table table-condensed table-bordered sm-result-table">
+                    <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>任务</th>
+                        <th>步骤</th>
+                        <th>模块</th>
+                        <th>说明</th>
+                        <th>执行库</th>
+                        <th>状态</th>
+                        <th>影响行数</th>
+                        <th>耗时(s)</th>
+                        <th>执行人</th>
+                        <th>错误信息</th>
+                    </tr>
+                    </thead>
+                    <tbody id="sm-log-body">
+                    <tr><td colspan="11" class="text-center text-muted">暂无记录</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}
+
+{% block js %}
+<script>
+    var CONFIG_MODULES = {{ config_modules|safe }};
+    var MODULE_LABELS = {{ module_labels|safe }};
+
+    var state = {
+        currentStep: 1,
+        done: {},
+        items: {},
+        dbCache: {},
+        taskId: null,
+        step1Ready: false
+    };
+
+    function showAlert(message, type) {
+        $('#sm-alert').removeClass('alert-info alert-danger alert-success alert-warning')
+            .addClass(type || 'alert-info').text(message).show();
+    }
+
+    function hideAlert() {
+        $('#sm-alert').hide();
+    }
+
+    function escapeHtml(text) {
+        return $('<div>').text(text === null || text === undefined ? '' : text).html();
+    }
+
+    function instanceSelect($select, placeholder, callback) {
+        $.getJSON('/api/v1/sqlquery/instances/', {db_type: ['mssql']}, function (result) {
+            $select.empty().append($('<option>', {value: '', text: placeholder}));
+            if (result.status === 0) {
+                $.each(result.data, function (_, item) {
+                    $select.append($('<option>', {value: item.instance_name, text: item.instance_name}));
+                });
+            } else {
+                showAlert(result.msg || '实例列表加载失败', 'alert-danger');
+            }
+            if (callback) { callback(); }
+        });
+    }
+
+    function loadDatabases(instanceName, $select, placeholder) {
+        if (!instanceName) {
+            $select.empty().append($('<option>', {value: '', text: placeholder}));
+            return;
+        }
+        var cacheKey = instanceName;
+        if (state.dbCache[cacheKey]) {
+            fillDatabases($select, state.dbCache[cacheKey], placeholder);
+            return;
+        }
+        $select.empty().append($('<option>', {value: '', text: '加载中...'}));
+        $.post('/server_merge/databases/', {instance_name: instanceName}, function (result) {
+            if (result.status !== 0) {
+                $select.empty().append($('<option>', {value: '', text: placeholder}));
+                showAlert(result.msg, 'alert-danger');
+                return;
+            }
+            state.dbCache[cacheKey] = result.data;
+            fillDatabases($select, result.data, placeholder);
+        }, 'json').fail(function () {
+            $select.empty().append($('<option>', {value: '', text: placeholder}));
+        });
+    }
+
+    function fillDatabases($select, databases, placeholder) {
+        var current = $select.val();
+        $select.empty().append($('<option>', {value: '', text: placeholder}));
+        $.each(databases, function (_, name) {
+            $select.append($('<option>', {value: name, text: name}));
+        });
+        if (current) { $select.val(current); }
+        // 加载方案时目标值可能早于选项到达，这里补设一次
+        var pending = $select.data('pending-value');
+        if (pending) {
+            $select.val(pending);
+            if ($select.val() === pending) { $select.removeData('pending-value'); }
+        }
+    }
+
+    function pendingSelectValue($select, value) {
+        if (!value) { return; }
+        $select.val(value);
+        if ($select.val() !== value) { $select.data('pending-value', value); }
+    }
+
+    function refreshModuleDatabases() {
+        var targetInstance = $('#sm-target-instance').val();
+        var sourceInstance = $('#sm-source-instance').val();
+        $('.sm-row-target').each(function () {
+            loadDatabases(targetInstance, $(this), '请选择目标库');
+        });
+        $('.sm-row-source').each(function () {
+            loadDatabases(sourceInstance, $(this), '请选择源库');
+        });
+        loadDatabases(targetInstance, $('#sm-index-db'), '请选择 INDEX 库');
+    }
+
+    function moduleRowHtml(module) {
+        var options = '';
+        $.each(CONFIG_MODULES, function (_, item) {
+            options += '<option value="' + item + '"' + (item === module ? ' selected' : '') + '>' + item + '</option>';
+        });
+        return '<tr class="sm-module-row">' +
+            '<td><select class="form-control input-sm sm-row-module">' + options + '</select></td>' +
+            '<td><select class="form-control input-sm sm-row-target"></select></td>' +
+            '<td><select class="form-control input-sm sm-row-source"></select></td>' +
+            '<td><button type="button" class="btn btn-xs btn-danger sm-row-remove">删除</button></td>' +
+            '</tr>';
+    }
+
+    function addModuleRow(module) {
+        var used = usedModules();
+        if (!module) {
+            $.each(CONFIG_MODULES, function (_, item) {
+                if (!module && used.indexOf(item) < 0) { module = item; }
+            });
+        }
+        if (!module) { showAlert('game 与 front 都已添加', 'alert-warning'); return; }
+        state.items = {};
+        $('#sm-module-rows').append(moduleRowHtml(module));
+        refreshModuleDatabases();
+    }
+
+    function usedModules() {
+        var used = [];
+        $('.sm-row-module').each(function () { used.push($(this).val()); });
+        return used;
+    }
+
+    function collectModuleRows() {
+        var rows = [];
+        $('#sm-module-rows tr').each(function () {
+            rows.push({
+                module: $(this).find('.sm-row-module').val(),
+                target_db: $(this).find('.sm-row-target').val() || '',
+                source_db: $(this).find('.sm-row-source').val() || ''
+            });
+        });
+        return rows;
+    }
+
+    function buildDomainPayload() {
+        return {
+            target_instance_name: $('#sm-target-instance').val(),
+            source_instance_name: $('#sm-source-instance').val(),
+            modules: collectModuleRows(),
+            index_db: $('#sm-index-db').val() || '',
+            task_id: state.taskId
+        };
+    }
+
+    function step1Validate() {
+        if (!$('#sm-target-instance').val()) { return '请选择目标实例'; }
+        if (!$('#sm-source-instance').val()) { return '请选择源实例'; }
+        var rows = collectModuleRows();
+        if (!rows.length && !$('#sm-index-db').val()) { return '请至少添加一个模块，或选择 INDEX 库'; }
+        var seen = {};
+        for (var i = 0; i < rows.length; i++) {
+            if (seen[rows[i].module]) { return '模块 ' + rows[i].module.toUpperCase() + ' 重复了，请删除多余行'; }
+            seen[rows[i].module] = true;
+            if (!rows[i].target_db) { return '请为模块 ' + rows[i].module.toUpperCase() + ' 选择目标库'; }
+            if (!rows[i].source_db) { return '请为模块 ' + rows[i].module.toUpperCase() + ' 选择源库'; }
+        }
+        return '';
+    }
+
+    function renderStepper() {
+        $('#sm-steps > li').each(function () {
+            var step = parseInt($(this).data('step'), 10);
+            $(this).removeClass('active done locked');
+            if (step === state.currentStep) { $(this).addClass('active'); }
+            if (state.done[step]) { $(this).addClass('done'); }
+        });
+    }
+
+    function goStep(step) {
+        state.currentStep = step;
+        $('.sm-panel').hide();
+        $('#sm-panel-' + step).show();
+        renderStepper();
+        // 已加载过的步骤保留当前编辑内容，不重复拉取
+        if (step >= 2 && !state.items[step]) { loadStep(step); }
+    }
+
+    function loadStep(step) {
+        var error = step1Validate();
+        if (error) {
+            $('#sm-items-' + step).html('<div class="text-muted">' + error + '</div>');
+            return $.Deferred().resolve().promise();
+        }
+        var modules = [];
+        $.each(collectModuleRows(), function (_, row) { modules.push(row.module); });
+        $('#sm-items-' + step).html('<div class="text-muted">正在加载默认 SQL...</div>');
+        return $.post('/server_merge/templates/', {
+            step: step,
+            modules: modules.join(','),
+            index_db: $('#sm-index-db').val() || ''
+        }, function (result) {
+            if (result.status !== 0) {
+                $('#sm-items-' + step).empty();
+                showAlert(result.msg, 'alert-danger');
+                return;
+            }
+            state.items[step] = result.data;
+            renderModuleFilter(step, result.data);
+            renderItems(step, result.data);
+        }, 'json');
+    }
+
+    function renderModuleFilter(step, items) {
+        var $filter = $('.sm-module-filter[data-step="' + step + '"]');
+        var current = $filter.val();
+        var modules = [];
+        $.each(items, function (_, item) {
+            if (modules.indexOf(item.module) < 0) { modules.push(item.module); }
+        });
+        $filter.empty().append($('<option>', {value: '', text: '全部模块'}));
+        $.each(modules, function (_, module) {
+            var label = module === 'common' ? '通用' : module.toUpperCase();
+            $filter.append($('<option>', {value: module, text: label}));
+        });
+        if (current) { $filter.val(current); }
+    }
+
+    function itemDomId(item) {
+        return 'sm-item-' + item.step + '-' + item.module + '-' + item.seq;
+    }
+
+    function renderItems(step, items) {
+        var $container = $('#sm-items-' + step).empty();
+        if (!items.length) {
+            $container.html('<div class="text-muted">当前步骤没有需要执行的条目。</div>');
+            return;
+        }
+        $.each(items, function (_, item) {
+            var domId = itemDomId(item);
+            var $card = $('<div class="panel panel-default sm-item">')
+                .attr('id', domId)
+                .attr('data-step', item.step)
+                .attr('data-module', item.module)
+                .attr('data-seq', item.seq)
+                .attr('data-run-on', item.run_on);
+            var $head = $('<div class="panel-heading">');
+            $head.append($('<label class="checkbox-inline">')
+                .append($('<input type="checkbox" class="sm-item-enable">').prop('checked', item.enabled))
+                .append(' 启用'));
+            $head.append($('<strong>').text(item.title));
+            $head.append(' <span class="label label-info">' + escapeHtml(item.module_label) + '</span>');
+            $head.append(' <span class="label label-' + (item.run_on === 'source' ? 'warning' : 'primary') + '">' +
+                (item.run_on === 'source' ? '源库' : '目标库') + '</span>');
+            $head.append(' <span class="label label-success sm-custom-flag" style="display:' +
+                (item.customized ? 'inline' : 'none') + '">已自定义</span>');
+            var $tools = $('<span class="pull-right">');
+            $tools.append($('<label class="checkbox-inline">')
+                .append($('<input type="checkbox" class="sm-item-transaction">').prop('checked', item.use_transaction))
+                .append(' 使用事务'));
+            $tools.append(' <button type="button" class="btn btn-xs btn-default sm-preview-btn">预览</button>');
+            $tools.append(' <button type="button" class="btn btn-xs btn-default sm-save-btn">保存为默认</button>');
+            $tools.append(' <button type="button" class="btn btn-xs btn-default sm-reset-btn">恢复默认</button>');
+            $head.append($tools);
+            $card.append($head);
+            var $body = $('<div class="panel-body">');
+            $body.append($('<textarea class="form-control sm-item-sql" rows="8">').val(item.sql));
+            $body.append($('<div class="sm-preview"><p class="text-muted">变量渲染结果：</p><pre></pre></div>'));
+            $card.append($body);
+            $container.append($card);
+        });
+    }
+
+    function visibleItems(step) {
+        var $filter = $('.sm-module-filter[data-step="' + step + '"]');
+        var module = $filter.val();
+        var items = state.items[step] || [];
+        return items.filter(function (item) {
+            return !module || item.module === module;
+        });
+    }
+
+    function collectItemsForExecute(step) {
+        var items = visibleItems(step);
+        var payloadItems = [];
+        $.each(items, function (_, item) {
+            var $card = $('#' + itemDomId(item));
+            if (!$card.find('.sm-item-enable').is(':checked')) { return; }
+            payloadItems.push({
+                step: item.step,
+                module: item.module,
+                seq: item.seq,
+                title: item.title,
+                run_on: item.run_on,
+                enabled: true,
+                use_transaction: $card.find('.sm-item-transaction').is(':checked'),
+                sql: $card.find('.sm-item-sql').val()
+            });
+        });
+        return payloadItems;
+    }
+
+    function renderExecuteResult(step, data) {
+        var $container = $('#sm-result-' + step).empty();
+        if (!data.items || !data.items.length) { return; }
+        var $table = $('<table class="table table-condensed table-bordered sm-result-table">');
+        $table.append('<thead><tr><th>模块</th><th>说明</th><th>执行位置</th><th>状态</th><th>批次</th><th>影响行数</th><th>耗时(s)</th><th>错误信息</th></tr></thead>');
+        var $body = $('<tbody>');
+        $.each(data.items, function (_, item) {
+            var label = item.status === 'success' ? 'label-success' : (item.status === 'failed' ? 'label-danger' : 'label-default');
+            $body.append($('<tr>')
+                .append($('<td>').text(item.module_label || item.module))
+                .append($('<td>').text(item.title))
+                .append($('<td>').text(item.db_name || item.instance_name))
+                .append($('<td>').append($('<span class="label ' + label + '">').text(item.status)))
+                .append($('<td>').text(item.batch_count || 0))
+                .append($('<td>').text(item.affected_rows || 0))
+                .append($('<td>').text(item.cost_time || 0))
+                .append($('<td>').text(item.error || '')));
+        });
+        $table.append($body);
+        $container.append($table);
+    }
+
+    function executeStep(step) {
+        var payloadItems = collectItemsForExecute(step);
+        if (!payloadItems.length) {
+            showAlert('请至少勾选一条要执行的 SQL', 'alert-warning');
+            return;
+        }
+        var useTransaction = $('.sm-use-transaction[data-step="' + step + '"]').is(':checked');
+        var message = '确认执行第 ' + step + ' 步的 ' + payloadItems.length + ' 条 SQL 吗？' +
+            (useTransaction ? '（整步使用事务，失败自动回滚）' : '（未使用事务，失败不可回滚）');
+        if (!window.confirm(message)) { return; }
+
+        var $button = $('.sm-exec-step[data-step="' + step + '"]');
+        $button.prop('disabled', true);
+        showAlert('第 ' + step + ' 步执行中，请勿关闭页面...', 'alert-info');
+        var payload = buildDomainPayload();
+        payload.items = payloadItems;
+        $.ajax({
+            url: '/server_merge/execute/',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload),
+            dataType: 'json'
+        }).done(function (result) {
+            if (result.data && result.data.task_id) { state.taskId = result.data.task_id; }
+            renderExecuteResult(step, result.data || {});
+            if (result.status === 0) {
+                state.done[step] = true;
+                showAlert(result.msg, 'alert-success');
+                renderStepper();
+            } else {
+                showAlert(result.msg, 'alert-danger');
+            }
+            loadLogs();
+        }).fail(function (xhr) {
+            showAlert('执行请求失败：' + xhr.status + ' ' + xhr.statusText, 'alert-danger');
+        }).always(function () {
+            $button.prop('disabled', false);
+        });
+    }
+
+    function loadLogs() {
+        $.getJSON('/server_merge/logs/', {limit: 100}, function (result) {
+            var $body = $('#sm-log-body').empty();
+            if (result.status !== 0 || !result.data.length) {
+                $body.append('<tr><td colspan="11" class="text-center text-muted">暂无记录</td></tr>');
+                return;
+            }
+            $.each(result.data, function (_, row) {
+                var label = row.status === 'success' ? 'label-success' : (row.status === 'failed' ? 'label-danger' : 'label-default');
+                $body.append($('<tr>')
+                    .append($('<td>').text(row.create_time))
+                    .append($('<td>').text(row.task_title))
+                    .append($('<td>').text(row.step_title))
+                    .append($('<td>').text(row.module))
+                    .append($('<td>').text(row.title))
+                    .append($('<td>').text(row.run_db))
+                    .append($('<td>').append($('<span class="label ' + label + '">').text(row.status)))
+                    .append($('<td>').text(row.affected_rows))
+                    .append($('<td>').text(row.cost_time))
+                    .append($('<td>').text(row.user_display))
+                    .append($('<td>').text(row.error_info)));
+            });
+        });
+    }
+
+    function loadAllSteps() {
+        // 只补拉尚未加载的步骤，避免覆盖用户已经编辑过的 SQL
+        var requests = [];
+        $.each([2, 3, 4, 5], function (_, step) {
+            if (!state.items[step]) { requests.push(loadStep(step)); }
+        });
+        if (!requests.length) { return new $.Deferred().resolve().promise(); }
+        return $.when.apply($, requests);
+    }
+
+    function collectAllItems() {
+        var all = [];
+        $.each([2, 3, 4, 5], function (_, step) {
+            $.each(state.items[step] || [], function (_, item) {
+                var $card = $('#' + itemDomId(item));
+                if (!$card.length) { return; }
+                all.push({
+                    step: item.step,
+                    module: item.module,
+                    seq: item.seq,
+                    title: item.title,
+                    run_on: item.run_on,
+                    enabled: $card.find('.sm-item-enable').is(':checked'),
+                    use_transaction: $card.find('.sm-item-transaction').is(':checked'),
+                    sql: $card.find('.sm-item-sql').val()
+                });
+            });
+        });
+        return all;
+    }
+
+    function saveProfile() {
+        var error = step1Validate();
+        if (error) { showAlert(error, 'alert-warning'); return; }
+        var name = $.trim($('#sm-profile-name').val());
+        if (!name) { showAlert('请填写方案名称', 'alert-warning'); return; }
+        var $button = $('#sm-profile-save').prop('disabled', true);
+        showAlert('正在加载各步骤配置并保存...', 'alert-info');
+        loadAllSteps().always(function () {
+            var payload = buildDomainPayload();
+            payload.name = name;
+            payload.items = collectAllItems();
+            $.ajax({
+                url: '/server_merge/profile/save/',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(payload),
+                dataType: 'json'
+            }).done(function (result) {
+                showAlert(result.msg, result.status === 0 ? 'alert-success' : 'alert-danger');
+                if (result.status === 0) { loadProfileList(result.data.id); }
+            }).fail(function (xhr) {
+                showAlert('保存失败：' + xhr.status + ' ' + xhr.statusText, 'alert-danger');
+            }).always(function () {
+                $button.prop('disabled', false);
+            });
+        });
+    }
+
+    function loadProfileList(selectedId) {
+        $.getJSON('/server_merge/profile/list/', function (result) {
+            var $select = $('#sm-profile-list').empty()
+                .append($('<option>', {value: '', text: '选择已保存的方案'}));
+            if (result.status !== 0) { return; }
+            $.each(result.data, function (_, row) {
+                $select.append($('<option>', {
+                    value: row.id,
+                    text: row.name + '（' + row.user_display + ' ' + row.update_time + '，' + row.item_count + ' 条）'
+                }));
+            });
+            if (selectedId) { $select.val(String(selectedId)); }
+        });
+    }
+
+    function loadProfile() {
+        var id = $('#sm-profile-list').val();
+        if (!id) { showAlert('请先选择要加载的方案', 'alert-warning'); return; }
+        $.post('/server_merge/profile/load/', {id: id}, function (result) {
+            if (result.status !== 0) { showAlert(result.msg, 'alert-danger'); return; }
+            applyProfile(result.data);
+        }, 'json');
+    }
+
+    function applyProfile(data) {
+        state.taskId = null;
+        state.done = {};
+        state.items = {};
+        state.step1Ready = true;
+        $('#sm-profile-name').val(data.name);
+        $('#sm-target-instance').val(data.target_instance_name);
+        $('#sm-source-instance').val(data.source_instance_name);
+
+        var rows = data.modules || [];
+        var $rows = $('#sm-module-rows').empty();
+        $.each(rows, function (_, row) { $rows.append(moduleRowHtml(row.module)); });
+        if (!rows.length) { $rows.append(moduleRowHtml('game')); }
+        refreshModuleDatabases();
+        $.each(rows, function (index, row) {
+            var $tr = $rows.find('tr').eq(index);
+            pendingSelectValue($tr.find('.sm-row-target'), row.target_db);
+            pendingSelectValue($tr.find('.sm-row-source'), row.source_db);
+        });
+        pendingSelectValue($('#sm-index-db'), data.index_db);
+
+        var grouped = {};
+        $.each(data.items || [], function (_, item) {
+            if (!grouped[item.step]) { grouped[item.step] = []; }
+            grouped[item.step].push(item);
+        });
+        $.each([2, 3, 4, 5], function (_, step) {
+            var items = grouped[step] || [];
+            $.each(items, function (_, item) {
+                item.module_label = MODULE_LABELS[item.module] || item.module;
+                item.customized = true;
+            });
+            if (items.length) { state.items[step] = items; }
+            renderModuleFilter(step, items);
+            renderItems(step, items);
+        });
+
+        $('.sm-panel').hide();
+        $('#sm-panel-1').show();
+        state.currentStep = 1;
+        renderStepper();
+        showAlert('已加载方案：' + data.name + '（共 ' + (data.items || []).length + ' 条 SQL）', 'alert-success');
+    }
+
+    function deleteProfile() {
+        var id = $('#sm-profile-list').val();
+        if (!id) { showAlert('请先选择要删除的方案', 'alert-warning'); return; }
+        if (!window.confirm('确认删除该方案吗？')) { return; }
+        $.post('/server_merge/profile/delete/', {id: id}, function (result) {
+            showAlert(result.msg, result.status === 0 ? 'alert-success' : 'alert-danger');
+            if (result.status === 0) { loadProfileList(); }
+        }, 'json');
+    }
+
+    function renderExecuteAllResult(data) {
+        var $container = $('#sm-result-all').empty();
+        var steps = data.steps || [];
+        if (!steps.length) { return; }
+        var $table = $('<table class="table table-condensed table-bordered sm-result-table">');
+        $table.append('<thead><tr><th style="width:24%">步骤</th><th style="width:10%">状态</th><th style="width:12%">耗时(s)</th><th>说明 / 错误信息</th></tr></thead>');
+        var $body = $('<tbody>');
+        $.each(steps, function (_, row) {
+            var label = row.status === 'success' ? 'label-success' : 'label-danger';
+            $body.append($('<tr>')
+                .append($('<td>').append($('<strong>').text(row.step + ' ' + row.step_title)))
+                .append($('<td>').append($('<span class="label ' + label + '">').text(row.status)))
+                .append($('<td>').text(row.cost_time))
+                .append($('<td>').text(row.error || '')));
+            $.each(row.items || [], function (_, item) {
+                var detail = item.error || ('影响行数 ' + (item.affected_rows || 0) + ' / 执行库 ' + (item.db_name || item.instance_name));
+                $body.append($('<tr>')
+                    .append($('<td>').addClass('text-muted').text('　└ ' + (item.module_label || item.module)))
+                    .append($('<td>').text(item.status))
+                    .append($('<td>').text(item.cost_time))
+                    .append($('<td>').text(detail)));
+            });
+        });
+        $table.append($body);
+        $container.append($table);
+    }
+
+    function executeAll() {
+        var error = step1Validate();
+        if (error) { showAlert(error, 'alert-warning'); return; }
+        if (!window.confirm('确认依次执行第 2~5 步的全部已启用 SQL 吗？每个步骤一个事务，任一步失败即停止。')) { return; }
+        var $button = $('#sm-exec-all').prop('disabled', true);
+        showAlert('正在加载各步骤 SQL...', 'alert-info');
+        loadAllSteps().always(function () {
+            var items = collectAllItems().filter(function (item) { return item.enabled; });
+            if (!items.length) {
+                showAlert('没有已启用的 SQL，请先配置第 1 步并加载默认 SQL', 'alert-warning');
+                $button.prop('disabled', false);
+                return;
+            }
+            showAlert('正在依次执行全部步骤（共 ' + items.length + ' 条 SQL），请勿关闭页面...', 'alert-info');
+            var payload = buildDomainPayload();
+            payload.items = items;
+            $.ajax({
+                url: '/server_merge/execute_all/',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(payload),
+                dataType: 'json'
+            }).done(function (result) {
+                if (result.data && result.data.task_id) { state.taskId = result.data.task_id; }
+                renderExecuteAllResult(result.data || {});
+                $.each((result.data && result.data.steps) || [], function (_, row) {
+                    if (row.status === 'success') { state.done[row.step] = true; }
+                });
+                renderStepper();
+                showAlert(result.msg, result.status === 0 ? 'alert-success' : 'alert-danger');
+                loadLogs();
+            }).fail(function (xhr) {
+                showAlert('执行请求失败：' + xhr.status + ' ' + xhr.statusText, 'alert-danger');
+            }).always(function () {
+                $button.prop('disabled', false);
+            });
+        });
+    }
+
+    $(function () {
+        instanceSelect($('#sm-target-instance'), '请选择目标实例');
+        instanceSelect($('#sm-source-instance'), '请选择源实例');
+
+        $('#sm-target-instance').change(function () { refreshModuleDatabases(); });
+        $('#sm-source-instance').change(function () { refreshModuleDatabases(); });
+
+        $('#sm-add-module').click(function () { addModuleRow(); });
+
+        $('#sm-module-rows').on('change', '.sm-row-module', function () {
+            var module = $(this).val();
+            var count = 0;
+            $('.sm-row-module').each(function () { if ($(this).val() === module) { count++; } });
+            if (count > 1) { showAlert('模块 ' + module.toUpperCase() + ' 已存在，请勿重复添加', 'alert-warning'); }
+            state.items = {};
+        });
+
+        $('#sm-module-rows').on('click', '.sm-row-remove', function () {
+            $(this).closest('tr').remove();
+            state.items = {};
+        });
+
+        $('#sm-profile-save').click(saveProfile);
+        $('#sm-profile-load').click(loadProfile);
+        $('#sm-profile-delete').click(deleteProfile);
+        $('#sm-exec-all').click(executeAll);
+
+        $('#sm-steps').on('click', 'li', function () {
+            goStep(parseInt($(this).data('step'), 10));
+        });
+
+        $('#sm-save-step1').click(function () {
+            var error = step1Validate();
+            if (error) {
+                showAlert(error, 'alert-warning');
+                return;
+            }
+            state.step1Ready = true;
+            showAlert('配置已保存，可单独执行任意步骤。', 'alert-success');
+        });
+
+        addModuleRow('game');
+
+        $('.sm-reload-step').click(function () {
+            var step = parseInt($(this).data('step'), 10);
+            state.items[step] = [];
+            loadStep(step);
+        });
+
+        $('.sm-exec-step').click(function () {
+            executeStep(parseInt($(this).data('step'), 10));
+        });
+
+        $('.sm-module-filter').change(function () {
+            var step = parseInt($(this).data('step'), 10);
+            var module = $(this).val();
+            $('.sm-item').each(function () {
+                var itemModule = $(this).data('module');
+                if (!module || String(itemModule) === String(module)) { $(this).show(); } else { $(this).hide(); }
+            });
+        });
+
+        $('.sm-panel').on('click', '.sm-preview-btn', function () {
+            var $card = $(this).closest('.sm-item');
+            var payload = buildDomainPayload();
+            payload.module = $card.data('module');
+            payload.sql = $card.find('.sm-item-sql').val();
+            $.post('/server_merge/preview/', payload, function (result) {
+                if (result.status !== 0) {
+                    showAlert(result.msg, 'alert-danger');
+                    return;
+                }
+                $card.find('.sm-preview').show().find('pre').text(result.data.sql);
+            }, 'json');
+        });
+
+        $('.sm-panel').on('click', '.sm-save-btn', function () {
+            var $card = $(this).closest('.sm-item');
+            $.post('/server_merge/templates/save/', {
+                step: $card.data('step'),
+                module: $card.data('module'),
+                seq: $card.data('seq'),
+                sql: $card.find('.sm-item-sql').val(),
+                enabled: $card.find('.sm-item-enable').is(':checked'),
+                use_transaction: $card.find('.sm-item-transaction').is(':checked')
+            }, function (result) {
+                showAlert(result.msg, result.status === 0 ? 'alert-success' : 'alert-danger');
+                if (result.status === 0) { $card.find('.sm-custom-flag').show(); }
+            }, 'json');
+        });
+
+        $('.sm-panel').on('click', '.sm-reset-btn', function () {
+            var $card = $(this).closest('.sm-item');
+            $.post('/server_merge/templates/reset/', {
+                step: $card.data('step'), module: $card.data('module'), seq: $card.data('seq')
+            }, function (result) {
+                showAlert(result.msg, result.status === 0 ? 'alert-success' : 'alert-danger');
+                if (result.status === 0) {
+                    $card.find('.sm-item-sql').val(result.data.sql);
+                    $card.find('.sm-custom-flag').hide();
+                }
+            }, 'json');
+        });
+
+        $('#sm-test-link').click(function () {
+            var payload = buildDomainPayload();
+            var $button = $(this).prop('disabled', true);
+            $.post('/server_merge/test_link/', payload, function (result) {
+                showAlert(result.msg, result.status === 0 ? 'alert-success' : 'alert-danger');
+            }, 'json').always(function () {
+                $button.prop('disabled', false);
+            });
+        });
+
+        $('#sm-refresh-logs').click(loadLogs);
+
+        $('#sm-reset-flow').click(function () {
+            if (!window.confirm('重置后已标记的完成状态会清空，确认重置吗？')) { return; }
+            state.done = {};
+            state.items = {};
+            state.taskId = null;
+            state.step1Ready = false;
+            $('#sm-result-2, #sm-result-3, #sm-result-4, #sm-result-5').empty();
+            goStep(1);
+            showAlert('已重置本次流程', 'alert-info');
+        });
+
+        loadProfileList();
+        loadLogs();
+    });
+</script>
+{% endblock js %}

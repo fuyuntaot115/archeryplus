@@ -981,6 +981,147 @@ class AliyunRdsConfig(models.Model):
         verbose_name_plural = "阿里云rds配置"
 
 
+SERVER_MERGE_STEP_CHOICES = (
+    (2, "2-创建外部数据源和存储过程"),
+    (3, "3-复制和清理(Pre_work/Copy/Delete)"),
+    (4, "4-数据写入(Insert)"),
+    (5, "5-后处理(Post_work)"),
+)
+
+SERVER_MERGE_MODULE_CHOICES = (
+    ("common", "通用"),
+    ("game", "GAME"),
+    ("front", "FRONT"),
+    ("index", "INDEX"),
+)
+
+
+class ServerMergeTemplate(models.Model):
+    """
+    合服步骤默认 SQL 模板覆盖值
+    页面上「保存为默认」后落库，未落库时使用代码库内的默认模板文件
+    """
+
+    step = models.IntegerField("步骤", choices=SERVER_MERGE_STEP_CHOICES)
+    module = models.CharField(
+        "模块", max_length=20, choices=SERVER_MERGE_MODULE_CHOICES
+    )
+    seq = models.IntegerField("同一步骤内的顺序", default=1)
+    title = models.CharField("说明", max_length=200, blank=True, default="")
+    sql = models.TextField("SQL 语句")
+    enabled = models.BooleanField("是否启用", default=True)
+    use_transaction = models.BooleanField("使用事务执行", default=True)
+    update_user = models.CharField("最后修改人", max_length=30, blank=True, default="")
+    create_time = models.DateTimeField("创建时间", auto_now_add=True)
+    update_time = models.DateTimeField("更新时间", auto_now=True)
+
+    def __str__(self):
+        return f"{self.step}-{self.module}-{self.seq}"
+
+    class Meta:
+        managed = True
+        db_table = "server_merge_template"
+        unique_together = (("step", "module", "seq"),)
+        verbose_name = "合服默认SQL模板"
+        verbose_name_plural = "合服默认SQL模板"
+
+
+class ServerMergeProfile(models.Model):
+    """
+    合服方案：保存第一步配置与所有步骤的 SQL 配置，可整体复用
+    """
+
+    name = models.CharField("方案名称", max_length=100)
+    target_instance_name = models.CharField("目标实例", max_length=50)
+    source_instance_name = models.CharField("源实例", max_length=50)
+    index_db = models.CharField("INDEX库", max_length=64, blank=True, default="")
+    modules = models.TextField("模块库配置JSON", blank=True, default="")
+    items = models.TextField("步骤SQL配置JSON", blank=True, default="")
+    create_user = models.CharField("创建人", max_length=30, blank=True, default="")
+    create_user_display = models.CharField(
+        "创建人中文名", max_length=50, blank=True, default=""
+    )
+    create_time = models.DateTimeField("创建时间", auto_now_add=True)
+    update_time = models.DateTimeField("更新时间", auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        managed = True
+        db_table = "server_merge_profile"
+        unique_together = (("name", "create_user"),)
+        ordering = ["-update_time"]
+        verbose_name = "合服方案"
+        verbose_name_plural = "合服方案"
+
+
+class ServerMergeTask(models.Model):
+    """
+    合服任务，保存第一步选择的目标库/源库等配置
+    """
+
+    title = models.CharField("任务名称", max_length=100, blank=True, default="")
+    target_instance_name = models.CharField("目标实例", max_length=50)
+    source_instance_name = models.CharField("源实例", max_length=50)
+    variables = models.TextField("合服变量JSON", blank=True, default="")
+    config = models.TextField("模块库配置JSON", blank=True, default="")
+    create_user = models.CharField("创建人", max_length=30, blank=True, default="")
+    create_user_display = models.CharField(
+        "创建人中文名", max_length=50, blank=True, default=""
+    )
+    create_time = models.DateTimeField("创建时间", auto_now_add=True)
+    update_time = models.DateTimeField("更新时间", auto_now=True)
+
+    def __str__(self):
+        return self.title or f"server_merge_{self.id}"
+
+    class Meta:
+        managed = True
+        db_table = "server_merge_task"
+        ordering = ["-id"]
+        verbose_name = "合服任务"
+        verbose_name_plural = "合服任务"
+
+
+class ServerMergeLog(models.Model):
+    """
+    合服每一步的执行记录
+    """
+
+    task = models.ForeignKey(
+        ServerMergeTask,
+        verbose_name="合服任务",
+        related_name="logs",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    step = models.IntegerField("步骤")
+    module = models.CharField("模块", max_length=20, blank=True, default="")
+    seq = models.IntegerField("顺序", default=1)
+    title = models.CharField("说明", max_length=200, blank=True, default="")
+    run_db = models.CharField("执行库", max_length=64, blank=True, default="")
+    use_transaction = models.BooleanField("使用事务", default=True)
+    sql_text = models.TextField("执行的SQL", blank=True, default="")
+    status = models.CharField("状态", max_length=20, default="running")
+    affected_rows = models.IntegerField("影响行数", default=0)
+    cost_time = models.FloatField("耗时(秒)", default=0)
+    error_info = models.TextField("错误信息", blank=True, default="")
+    user_name = models.CharField("执行人", max_length=30, blank=True, default="")
+    user_display = models.CharField(
+        "执行人中文名", max_length=50, blank=True, default=""
+    )
+    create_time = models.DateTimeField("创建时间", auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = "server_merge_log"
+        ordering = ["-id"]
+        verbose_name = "合服执行记录"
+        verbose_name_plural = "合服执行记录"
+
+
 class Permission(models.Model):
     """
     自定义业务权限
@@ -1012,6 +1153,7 @@ class Permission(models.Model):
             ("menu_my2sql", "菜单 My2SQL"),
             ("menu_schemasync", "菜单 SchemaSync"),
             ("menu_mssql_log_rollback", "菜单 MSSQL2SQL"),
+            ("menu_server_merge", "菜单 ServerMerge"),
             ("menu_system", "菜单 系统管理"),
             ("menu_document", "菜单 相关文档"),
             ("menu_openapi", "菜单 OpenAPI"),

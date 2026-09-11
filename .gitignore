@@ -26,5 +26,16 @@ src/docker-compose-dev
 coverage.xml
 archery_custom
 static/
+# 例外：common/static 是前端源码资源（bootstrap/jquery 等），需要纳入版本管理，
+# 否则 clone 下来页面没有 CSS/JS；collectstatic 生成的 static/ 仍然排除
+!common/static/
+# dist/ 规则是给 Python 打包用的，不能误伤前端的 common/static/dist
+!common/static/dist/
 local_settings.py
 nohup.out
+venv_archery/
+# 本地运行时产物（MySQL 容器数据目录、JWT 密钥、日志），不纳入版本管理
+src/docker-compose/mysql/datadir/
+media/
+src/docker-compose/archery/keys/
+src/docker-compose/archery/logs/

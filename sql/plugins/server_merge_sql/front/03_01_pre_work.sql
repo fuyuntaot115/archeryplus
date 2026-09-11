@@ -1,0 +1,72 @@
+--	傍烹
+DELETE FROM world_character_tb WHERE CharacterDelete = 1
+DELETE a FROM account_block_tb a LEFT JOIN account_tb b ON a.AccountUID = b.AccountUID WHERE b.AccountUID IS NULL
+
+--	DB疙, World疙, WorldID 函版
+--	ASIA3
+ALTER TABLE world_db_tb NOCHECK CONSTRAINT world_db_tb$FK_world_db_tb_world_tb
+UPDATE world_db_tb SET WorldID = 934 WHERE WorldID = 941
+UPDATE db_tb SET DBConnectionName = '1-M4HK-DBGM330401' WHERE DBConnectionName = '1-M4HK-DBGM340101'
+UPDATE world_tb SET WorldName = 'ASIA334', WorldID = 934 WHERE WorldName = 'ASIA341'
+ALTER TABLE world_db_tb CHECK CONSTRAINT world_db_tb$FK_world_db_tb_world_tb
+--	ASIA4
+ALTER TABLE world_db_tb NOCHECK CONSTRAINT world_db_tb$FK_world_db_tb_world_tb
+UPDATE world_db_tb SET WorldID = 834 WHERE WorldID = 973
+UPDATE db_tb SET DBConnectionName = '1-M4HK-DBGM030401' WHERE DBConnectionName = '1-M4HK-DBGM370301'
+UPDATE world_tb SET WorldName = 'ASIA034', WorldID = 834 WHERE WorldName = 'ASIA373'
+ALTER TABLE world_db_tb CHECK CONSTRAINT world_db_tb$FK_world_db_tb_world_tb
+
+-- 何胶泼 辑滚 坷锹 郴侩 沥府
+-- ASIA
+INSERT INTO world_tb
+SELECT 311,2,'ASIA311',0,0,1,0,0,0,0,10000,0,0,0,1,1,0,0 UNION ALL
+SELECT 312,2,'ASIA312',0,0,1,0,0,0,0,10000,0,0,0,1,1,0,0 UNION ALL
+SELECT 313,2,'ASIA313',0,0,1,0,0,0,0,10000,0,0,0,1,1,0,0
+INSERT INTO db_tb
+SELECT 1001,'BASIA011',2,'ip',1433,1 UNION ALL
+SELECT 1002,'BASIA012',2,'ip',1433,1 UNION ALL
+SELECT 1003,'BASIA013',2,'ip',1433,1
+INSERT INTO world_db_tb
+SELECT 311,1001 UNION ALL
+SELECT 312,1002 UNION ALL
+SELECT 313,1003
+INSERT INTO world_expedition_tb
+SELECT 311,1,1,0,1,1 UNION ALL
+SELECT 312,1,1,0,1,1 UNION ALL
+SELECT 313,1,1,0,1,1
+-- INMENA
+INSERT INTO world_tb
+SELECT 252,2,'INMENA252',0,0,1,0,0,0,0,10000,0,0,0,1,1,0,0
+INSERT INTO db_tb
+SELECT 2001,'BINMENA021',2,'ip',1433,1
+INSERT INTO world_db_tb
+SELECT 252,2001
+INSERT INTO world_expedition_tb
+SELECT 252,6,1,0,1,1
+-- EU
+INSERT INTO world_tb
+SELECT 652,2,'EU652',0,0,1,0,0,0,0,10000,0,0,0,1,1,0,0
+INSERT INTO db_tb
+SELECT 3001,'BEU031',2,'ip',1433,1
+INSERT INTO world_db_tb
+SELECT 652,3001
+INSERT INTO world_expedition_tb
+SELECT 652,3,1,0,1,1
+-- SA
+INSERT INTO world_tb
+SELECT 752,2,'SA752',0,0,1,0,0,0,0,10000,0,0,0,1,1,0,0
+INSERT INTO db_tb
+SELECT 4001,'BSA041',2,'ip',1433,1
+INSERT INTO world_db_tb
+SELECT 752,4001
+INSERT INTO world_expedition_tb
+SELECT 752,5,1,0,1,1
+-- NA
+INSERT INTO world_tb
+SELECT 552,2,'NA552',0,0,1,0,0,0,0,10000,0,0,0,1,1,0,0
+INSERT INTO db_tb
+SELECT 5001,'BNA051',2,'ip',1433,1
+INSERT INTO world_db_tb
+SELECT 552,5001
+INSERT INTO world_expedition_tb
+SELECT 552,2,1,0,1,1
